@@ -1,0 +1,153 @@
+#!/bin/bash
+
+LSPCI=/usr/bin/lspci
+LSB=/usr/bin/lsb_release
+W=/usr/bin/w
+LASTLOG=/usr/bin/lastlog
+CAT=/bin/cat
+EGREP=/bin/egrep
+LSOF=/usr/bin/lsof
+DATE=/bin/date
+HOSTNAME=/bin/hostname
+UNAME=/bin/uname
+FAILLOG=/usr/bin/faillog
+SERVICE=/usr/bin/service
+FIND=/usr/bin/find
+LSOF=/usr/bin/lsof
+DF=/bin/df
+PS=/bin/ps
+LSPCI=/usr/bin/lspci
+APT=/usr/bin/apt
+IFCONFIG=/sbin/ifconfig
+ARP=/usr/sbin/arp
+NETSTAT=/bin/netstat
+HOME=/usr/bin/du
+
+
+
+CPU=/proc/cpuinfo
+MEMORY=/proc/meminfo
+
+IP4FW=/sbin/iptables
+IP6FW=/sbin/ip6tables
+ROUTE=/sbin/route
+
+
+## files ##
+PASSWD="/etc/passwd"
+SUDOERS="/etc/sudoers"
+SHADOW="/etc/shadow"
+GROUP="/etc/group"
+ROOTHIST="/root/.bash_history"
+LOGS="/var/log"
+WEBROOT="/var/www"
+DNSCLIENT="/etc/resolv.conf"
+DRVCONF="/etc/modprobe.conf"
+NETALIASCFC="/etc/sysconfig/network-scripts/ifcfg-eth?-range?"
+NETCFC="/etc/sysconfig/network-scripts/ifcfg-eth?"
+NETSTATICROUTECFC="/etc/sysconfig/network-scripts/route-eth?"
+SYSCTL="/etc/sysctl.conf"
+
+## Output file ##
+OUTPUT="./out_folder"
+
+
+root_check()
+{
+	local meid=$(id -u)
+	if [ $meid -ne 0 ]; then
+		echo "You must run this tool as root or sudo."
+		exit 1
+	fi
+}
+
+
+
+
+apt_install()
+{
+	apt-get install -y ext4undelete
+	apt-get install -y tree
+	curl https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > microsoft.gpg
+	mv microsoft.gpg /etc/apt/trusted.gpg.d/microsoft.gpg
+	sh -c 'echo "deb [arch=amd64] https://packages.microsoft.com/repos/microsoft-ubuntu-xenial-prod xenial main" > /etc/apt/sources.list.d/microsoft.list'
+	apt-get update
+	apt-get install -y procdump
+	
+}
+
+user_info()
+{
+	echo "* Hostname: $(hostname)" >> $OUTPUT"/host_name.txt"
+	echo "* Run date and time: $(date)" >> $OUTPUT"/date.txt"
+	echo "Linux kernel: $(uname -mrs)" >> $OUTPUT"/uname.txt"
+	
+
+	$FIND / -uid 0 -perm +4000 2>/dev/null >> $OUTPUT"/setUID.txt"
+	$FIND / -type f -user 0 -perm -002 -ls 2>/dev/null >> $OUTPUT"/root_perm.txt"
+	$FIND / -type f -mtime -7 2>/dev/null >> $OUTPUT"/last_7days.txt"
+	
+	
+
+	$W >> $OUTPUT"/login_user.txt"
+	$LASTLOG >> $OUTPUT"/last_log.txt"
+	$FAILLOG -a >> $OUTPUT"/fail_log.txt"
+	$CAT $PASSWD | cut -d : -f 6 | sed 's:$:/.bash_history:' | xargs -d '\n' grep -s -H -e "$pattern" >> $OUTPUT"/bash_hist.txt"
+	$CAT $PASSWD >> $OUTPUT"/passwd.txt"
+	
+	$CAT $SHADOW >> $OUTPUT"/shadow.txt"
+	$CAT $GROUP >> $OUTPUT"/group.txt"
+	
+
+	service --status-all 2>/dev/null | grep '+' >> $OUTPUT"/service_open.txt"
+	for user in $(cut -f1 -d: /etc/passwd); do crontab -u $user -l; done 2>/dev/null >> $OUTPUT"/cron.txt"
+
+	
+	$DF -T >> $OUTPUT"/disk_usage.txt"
+	$PS -ef >> $OUTPUT"/process_list.txt"
+	$LSPCI >> $OUTPUT"/lspci.txt"
+	$APT list --installed 2>/dev/null | cut --delimiter="/" --fields=1 >> $OUTPUT"/apt_list.txt"
+
+	ifconfig >> $OUTPUT"/ifconfig.txt"
+	arp -a >> $OUTPUT"/arp.txt"
+	netstat -nat >> "$OUTPUT/netstat.txt"	
+	$ROUTE -n >> "$OUTPUT/route.txt"
+
+	tree $WEBROOT >> $OUTPUT/"tree.txt"
+
+	
+	$IP4FW -L -n >> "$OUTPUT/ip4_fw.txt"
+	$IP6FW -L -n >> "$OUTPUT/ip6_fw.txt"
+
+	
+	
+	tar -cvf $OUTPUT/"log_folder.tar" $LOGS 1>/dev/null 2>/dev/null
+	tar -cvf $OUTPUT/"webroot_folder.tar" $WEBROOT 1>/dev/null 2>/dev/null
+
+
+	df | cut --delimiter=" " --fields=1 > dft0
+	
+	sed '/Filesystem/d' dft0 >  dft1
+	sed '/none/d' dft1 > dftemp.txt
+	
+	VAR1=1
+	while read line
+	do
+		mkdir $OUTPUT/$VAR1
+		cd $OUTPUT/$VAR1
+		echo "y" | extundelete --restore-all $line
+		clear
+		echo $line >> ./RECOVERED_FILES/disk.txt 2>/dev/null
+		cd ../../
+		VAR1=$((VAR1+1))
+	done < dftemp.txt
+	rm dft*
+
+
+}
+
+root_check
+rm -rf out_folder
+mkdir out_folder
+
+user_info
